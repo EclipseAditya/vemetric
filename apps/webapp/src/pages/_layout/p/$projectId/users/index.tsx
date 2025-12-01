@@ -15,15 +15,19 @@ import { UserAvatar } from '@/components/pages/user/user-avatar';
 import { UserSortPopover } from '@/components/pages/user/user-sort-popover';
 import { ProjectInitCard } from '@/components/project-init-card';
 import { SearchButtonInput } from '@/components/search-button-input';
+import { TimespanSelect } from '@/components/timespan-select';
 import { Status } from '@/components/ui/status';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useDebouncedState } from '@/hooks/use-debounced-state';
+import { useTimespanParam } from '@/hooks/use-timespan-param';
 import { useSetBreadcrumbs, useSetDocsLink } from '@/stores/header-store';
 import { dateTimeFormatter } from '@/utils/date-time-formatter';
+import { timeSpanSearchMiddleware, timespanSearchSchema } from '@/utils/timespans';
 import { trpc } from '@/utils/trpc';
 import { getUserName } from '@/utils/user';
 
 const usersSearchSchema = z.object({
+  ...timespanSearchSchema.shape,
   p: z.number().min(1).optional().catch(1),
   f: filterConfigSchema,
   s: userSortConfigSchema,
@@ -32,6 +36,9 @@ const usersSearchSchema = z.object({
 
 export const Route = createFileRoute('/_layout/p/$projectId/users/')({
   validateSearch: zodValidator(usersSearchSchema),
+  search: {
+    middlewares: [timeSpanSearchMiddleware],
+  },
   component: Page,
 });
 
@@ -39,6 +46,7 @@ function Page() {
   const { projectId } = Route.useParams();
   const { p: page = 1, f: filterConfig, s: sortConfig, q } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
+  const { timespan, startDate, endDate } = useTimespanParam({ from: '/_layout/p/$projectId/users/' });
   const [search, setSearch, debouncedSearch] = useDebouncedState({
     defaultValue: q ?? '',
     onUpdate: (value) => navigate({ search: (prev) => ({ ...prev, q: value || undefined, p: undefined }) }),
@@ -46,7 +54,9 @@ function Page() {
 
   const { data: filterableData, isLoading: isFilterableDataLoading } = trpc.filters.getFilterableData.useQuery({
     projectId,
-    timespan: '30days',
+    timespan,
+    startDate,
+    endDate,
   });
 
   const { data, isLoading, isFetching, isPreviousData } = trpc.users.list.useQuery(
@@ -56,6 +66,9 @@ function Page() {
       filterConfig,
       sortConfig,
       search: debouncedSearch,
+      timespan,
+      startDate,
+      endDate,
     },
     { keepPreviousData: true },
   );
@@ -111,6 +124,7 @@ function Page() {
             <Flex flexGrow={1} gap={2.5} justify="flex-end" align="center">
               <SearchButtonInput value={search} onChange={setSearch} />
               <AddFilterButton from="/p/$projectId/users" filterConfig={filterConfig} />
+              <TimespanSelect from="/_layout/p/$projectId/users/" excludeLive />
             </Flex>
           </Flex>
           <Box

@@ -1,3 +1,4 @@
+import { TIME_SPANS } from '@vemetric/common/charts/timespans';
 import { isEntityUnknown } from '@vemetric/common/event';
 import { filterConfigSchema } from '@vemetric/common/filters';
 import type { FunnelStep } from '@vemetric/common/funnel';
@@ -8,6 +9,7 @@ import { dbFunnel } from 'database';
 import { addDays, addMonths, startOfDay } from 'date-fns';
 import { z } from 'zod';
 import { getFilterFunnelsData } from '../utils/filter';
+import { getTimeSpanStartDate, getTimeSpanEndDate } from '../utils/timeseries';
 import { projectProcedure, router } from '../utils/trpc';
 
 const EVENTS_PER_PAGE = 50;
@@ -24,15 +26,25 @@ export const usersRouter = router({
         filterConfig: filterConfigSchema,
         sortConfig: userSortConfigSchema,
         search: z.string().optional(),
+        timespan: z.enum(TIME_SPANS).optional(),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
       }),
     )
     .query(async (opts) => {
       const {
-        input: { page, filterConfig, sortConfig, search },
+        input: { page, filterConfig, sortConfig, search, timespan = '24hrs', startDate: customStartDate, endDate: customEndDate },
         ctx: { projectId, project, subscriptionStatus },
       } = opts;
 
-      const startDate = getFreePlanStartDate(subscriptionStatus.isActive);
+      // Calculate start date based on timespan (similar to dashboard)
+      const freePlanStartDate = getFreePlanStartDate(subscriptionStatus.isActive);
+      const timespanStartDate = getTimeSpanStartDate(timespan, customStartDate);
+      const timespanEndDate = timespan === 'custom' ? getTimeSpanEndDate(timespan, customEndDate || customStartDate) : undefined;
+      
+      // Use the more restrictive of free plan limit or timespan
+      const startDate = freePlanStartDate && freePlanStartDate > timespanStartDate ? freePlanStartDate : timespanStartDate;
+      
       const funnelsData = await getFilterFunnelsData(project.id, filterConfig);
 
       const { filterQueries } = getUserFilterQueries({ filterConfig, projectId, startDate, funnelsData });
@@ -49,6 +61,7 @@ export const usersRouter = router({
           filterConfig,
           sortConfig,
           startDate,
+          timespanEndDate,
           search,
         ),
       ]);
